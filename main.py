@@ -2,58 +2,63 @@
 import numpy as np
 
 
-class grid:
+class Grid:
     """Hold the sudoku grid and helpful functions."""
 
-    def __init__(self):
-        """Initialise the grid."""
-        dcase = np.dtype([('val', int), ('options', list), ('n', int)])
-        self.grid = np.zeros((9, 9), dtype=dcase)
-        print(self.grid)
+    def __init__(self, n=9):
+        """Init an empty grid."""
+        dt = np.dtype([('val', int), ('options', int, (n,))])
+        a = np.zeros(shape=(n, n), dtype=dt)
+        self.grid = a.view(np.recarray)
+        self.n = n
+        self.resetOptions()
+    
+    def resetOptions(self):
+        """"Set options to one everywhere."""
+        for i in range(self.n):
+            for j in range(self.n):
+                self.grid[i, j]["options"] = np.ones(self.n)
 
-    def getRow(self, i):
-        """Return a row of the Sudoku grid."""
-        return self.grid[i, :]
-
-    def getColumns(self, i):
-        """Return a column of the Sudoku grid."""
-        return self.grid[:, i]
-
-
-class case:
-    """Hold grid value and "wave function"."""
-
-    def __init__(self, val=0):
-        """Initialise case with val and all options."""
-        self.val = val
-        self.options = np.arange(9) + 1
-        self.n = len(self.options)
-
-    def updateOption(self, new_options):
-        """Update value of self.options and accompanying self.n."""
-        self.options = new_options
-        self.n = len(self.options)
-
-    def removeOption(self, val):
-        """
-        Remove val from options.
-
-        val: int or array of int or np.array of int
-        """
-        if isinstance(val, (type([]), type(np.array([], dtype=int)))):
-            for n in val:
-                self.removeOption(n)
-        elif isinstance(val, int):
-            if val in self.options:
-                self.updateOption(np.delete(self.options,
-                                            np.where(self.options == val)))
-        else:
-            raise TypeError("val should be int or array of int.")
+    def readFromCmdl(self):
+        """Read a sudoku grid from command line."""
+        for i in range(self.n):
+            for j in range(self.n):
+                # TODO: error handling
+                val = int(input("Enter the next number: "))
+                if val:
+                    self.setVal(val, i, j)
+                else:
+                    # Maybe move this to init?
+                    self.grid[i, j]["options"] = np.ones(self.n)
+    
+    def loadStd(self):
+        """Load a standard sudoku grid for debugging."""
+        numbers = [0, 0, 0, 0, 4, 0, 9, 0, 1,
+                   0, 0, 0, 0, 0, 9, 8, 0, 6,
+                   0, 0, 0, 0, 3, 0, 0, 7, 0,
+                   5, 0, 0, 0, 0, 3, 0, 0, 8,
+                   0, 1, 8, 9, 0, 5, 4, 2, 0,
+                   9, 0, 0, 1, 0, 0, 0, 0, 7,
+                   0, 3, 0, 0, 8, 0, 0, 0, 0,
+                   1, 0, 2, 7, 0, 0, 0, 0, 0,
+                   7, 0, 9, 0, 5, 0, 0, 0, 0]
+        for m, val in enumerate(numbers):
+            i, j = m // self.n, m % self.n
+            self.setVal(val, i, j)
+    
+    def setVal(self, val, i, j):
+        """Set a value at a particular grid coord."""
+        case = self.grid[i, j]
+        case["val"], case["options"] = val, np.zeros(self.n)
+    
+    def solve(self):
+        # TODO
 
 
 def main():
-    g = grid()
-    print(g.grid[0, 0].val)
+    g = Grid(9)
+    g.loadStd()
+    g.solve()
 
 
 if __name__ == '__main__':

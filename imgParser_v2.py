@@ -1,42 +1,11 @@
 """New imgParser using a deterministic approach with Hough-transform."""
 from matplotlib import pyplot as plt
 import numpy as np
-import scipy
-from skimage import io, filters, feature, transform
-import time
+from skimage import io, filters, feature, transform, util
 
 
 def rgb2gray(rgb):
     return np.dot(rgb[..., :3], [0.2989, 0.5870, 0.1140])
-
-
-def test_proba():
-    """Test the probabilistic Hough transform."""
-    print("Reading the image..")
-    im = io.imread("images/testSudoku.png")
-    
-    print("Pre-processing..")
-    im = rgb2gray(im)
-    im = filters.gaussian(im, sigma=2)
-    im = im > 100
-    plt.imshow(im, cmap="gray", vmin=0, vmax=1)
-
-    print("Begin line finding..")
-    # edges = feature.canny(im, sigma=0, low_threshold=0, high_threshold=1)
-    edges = ~im
-    angles = np.append(np.linspace(np.pi/2*0.9, np.pi/2*1.1, 50),
-                        np.linspace(-np.pi/2*0.1, np.pi/2*0.1, 50))
-    lines = transform.probabilistic_hough_line(
-        edges, threshold=1, line_length=2000, line_gap=50, theta=angles)
-    
-    
-    # Plot results
-    plt.imshow(~edges, cmap="gray", vmin=0, vmax=1)
-    for line in lines:
-        p0, p1 = line
-        plt.plot([p0[0], p1[0]], [p0[1], p1[1]])
-    
-    plt.savefig("plots/test_hough.pdf")
 
 
 def getIntersect(line1, line2):
@@ -47,8 +16,39 @@ def getIntersect(line1, line2):
     return x, y
 
 
-def test_direct():
-    """Test the line Hough transform."""
+def getBounds(_im, axis=0, _stdlim=5, _xlim=0.95):
+    """Get bounds of innermost square on axis."""
+    # Get derivative of projected sum
+    x = np.sum(_im, axis=axis)
+    dx = x[1:] - x[:-1]
+    
+    # Filter out inner noise
+    dx_filter = dx[np.abs(dx - np.mean(dx)) < np.std(dx, ddof=1)]
+
+    # Go from the outside to exit of first turbulent region
+    n, N, _xmax = int(len(dx) / 2), len(x), _xlim*max(x)
+    _stdmax = _stdlim * np.std(dx_filter, ddof=1)
+    _in_region = False
+    for i, val in enumerate(dx[:n]):
+        if np.abs(val) > _stdmax:
+            _in_region = True
+        elif _in_region and x[i-1] >= _xmax:
+            _left = i + 1
+            break
+    
+    _in_region = False
+    for i, val in enumerate(dx[n:][::-1]):
+        if np.abs(val) > _stdmax:
+            _in_region = True
+        elif _in_region and x[N-i-1] >= _xmax:
+            _rght = len(x) - i
+            break
+    
+    return _left, _rght
+
+
+def getSquares():
+    """Detect and extract squares using Hough transform."""
     print("Reading the image..")
     im = io.imread("images/testSudoku.png")
     
@@ -68,7 +68,6 @@ def test_direct():
     for _, angle, dist in zip(*transform.hough_line_peaks(h, theta, d)):
         (x0, y0) = dist *  np.array([np.cos(angle), np.sin(angle)])
         slope = np.tan(angle + np.pi/2)
-        # plt.axline((x0, y0), slope=slope, color="r")
         
         x0s += [x0]
         y0s += [y0]
@@ -96,88 +95,84 @@ def test_direct():
             vertical[np.argmin(gaps) - len(horizontal) + 1]
         data = np.delete(data, obj=np.where(data == hMin)[0], axis=0)
         
-    # Now isolate the images!
+    # Now isolate the images
     idx = np.argsort(data[:, 1])
     data = data[idx[::-1], :]
     
-    # Separate horizontal and vertical
+    # Separate horizontal and vertical lines
     mask = np.abs(data[:, 2]) < 1
     horizontal, vertical = data[mask, :], data[~mask, :]
     
     # Sort
     horizontal = horizontal[np.argsort(horizontal[:, 1]), :]
     vertical = vertical[np.argsort(vertical[:, 0]), :]
-    
-    # plt.figure()
-    # plt.scatter(horizontal[:, 0], horizontal[:, 1])
-    # plt.scatter(vertical[:, 0], vertical[:, 1])
     assert(len(horizontal) == 10 and len(vertical) == 10)
     
-    def plotLine(x, y, s):
-        plt.axline((x, y), slope=s, color="r")
-        
+    squares = []
+    print("Extracting squares..")
+    x, y = np.arange(im.shape[0]), np.arange(im.shape[1])
+    X, Y = np.meshgrid(y, x)
     for i in range(9):
+        row = []
         for j in range(9):
+            # TODO: REMOVE THIS!
+            # if j != 2:
+            #     continue
+            # Get bounding lines
             horizontal_0, horizontal_1 = horizontal[i, :], horizontal[i+1, :]
             vertical_0, vertical_1 = vertical[j, :], vertical[j+1, :]
             
+            # Construct bounding box for square
             xa, ya = getIntersect(horizontal_0, vertical_0)
             xb, yb = getIntersect(horizontal_0, vertical_1)
             xc, yc = getIntersect(horizontal_1, vertical_1)
             xd, yd = getIntersect(horizontal_1, vertical_0)
-            plt.scatter([xa, xb, xc, xd], [ya, yb, yc, yd])
-            # plt.scatter([horizontal_0[0], horizontal_1[0], vertical_0[0], vertical_1[0]],
-            #             [horizontal_0[1], horizontal_1[1], vertical_0[1], vertical_1[1]])
-            # for line in horizontal_0, horizontal_1, vertical_0, vertical_1:
-            #     plotLine(*line)
-            # plt.imshow(im, cmap="gray", vmin=0, vmax=1)
-            # plt.draw()
-            # plt.pause(.01)
-            
-            # Extract square
-            # t0 = time.time()
-            # mask = np.zeros_like(im)
-            # [x0, y0, s0], [x1, y1, s1] = horizontal_0, horizontal_1
-            # for j in range(mask.shape[1]):
-            #     _up = s0*(j - x0) + y0
-            #     _lo = s1*(j - x1) + y1
-            #     mask[:int(_up), j] = 1
-            #     mask[int(_lo):, j] = 1
-            
-            # im[mask] = 0
-            # t1 = time.time()
-            # plt.imshow(im, cmap="gray", vmin=0, vmax=1)
-            
-            t2 = time.time()
-            x, y = np.arange(im.shape[0]), np.arange(im.shape[1])
-            X, Y = np.meshgrid(y, x)
-            
-            [x0, y0, s0], [x1, y1, s1] = horizontal_0, horizontal_1
-            _up, _lo = s0*(y - x0) + y0, s1*(y - x1) + y1
-            m1 = (Y <= _up) ^ (Y >= _lo)
-            
-            [x0, y0, s0], [x1, y1, s1] = vertical_0, vertical_1
-            _left, _rght = (x - y0)/s0 + x0, (x - y1)/s1 + x1
-            m2 = (X.T <= _left) ^ (X.T >= _rght)
+            _up, _lo = int(max(yc, yd)), int(min(ya, yb))
+            _left, _rght = int(min(xa, xd)), int(max(xb, xc))
+            _square = im[_lo:_up+1, _left:_rght+1]
 
-            mask = (m1 == 1) | (m2.T == 1)
-            # im[mask] = 0
-            # plt.imshow(im, cmap="gray", vmin=0, vmax=1)
-            # return
+            # Now remove exterior borders
+            # Vertical lines to y axis
+            theta = -np.arctan((vertical_0[-1] + vertical_1[-1]) / 2.)
+            _square = transform.rotate(_square, angle=theta)
+            _left, _rght = getBounds(_square, axis=0)
             
-            # [x0, y0, s0], [x1, y1, s1] = vertical_0, vertical_1
-            # _left, _rght = (y - y0)/s0 + x0, (y - y1)/s1 + x1
-            # m1 = np.any((X[None, :] >= _lo) ^ (X[None, :] <= _up), axis=0).T
-            # m2 = np.any((Y[:, None].T >= _rght) ^ (Y[:, None].T <= _left), axis=1)
-            # mask = (m1 == 1) | (m2 == 1)
+            # Horizontal lines to x axis
+            phi = np.arctan((horizontal_0[-1]+horizontal_1[-1])/2)
+            _square = transform.rotate(_square, angle=phi - theta)     
+            _lo, _up = getBounds(_square, axis=1)
+
+            square = _square[_lo:_up+1, _left:_rght+1]
+            row += [square]
             
-            _im = np.array(im)
-            _im[mask] = 0
-            plt.imshow(_im, cmap="gray", vmin=0, vmax=1)
-            plt.draw()
-            plt.pause(.001)
-        
+            # plt.figure()
+            # plt.imshow(square, cmap="gray", vmin=0, vmax=1)
+
+        squares += [row]
+    
+    sums = np.zeros((9, 9))
+    for i, row in enumerate(squares):
+        for j, square in enumerate(row):
+            # _lim = 0.2
+            # cropped = util.crop(square, (
+            #     (int(_lim*square.shape[0]), int(_lim*square.shape[0])),
+            #     (int(_lim*square.shape[1]), int(_lim*square.shape[1]))))
+            # square = cropped
+            res = transform.resize(square, (28, 28))
+            res = res > 0.5
+            sums[i, j] = 28*28 - np.sum(res)
+            # TODO: if res is empty, then there is no number
+            # Now zoom on numbers to create dataset
+    
+    plt.figure()
+    plt.hist(sums.flatten()[sums.flatten() != 0], 25)
+    print(sums.flatten())
+    
+    return squares
 
 
 if __name__ == '__main__':
-    test_direct()
+    squares = getSquares()
+    # for row in squares:
+    #     for square in row:
+    #         plt.imshow(square, cmap="gray", vmin=0, vmax=1)

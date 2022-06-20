@@ -5,6 +5,7 @@ from skimage import io, filters, feature, transform, util
 
 
 def rgb2gray(rgb):
+    """Convert color image to grayscale."""
     return np.dot(rgb[..., :3], [0.2989, 0.5870, 0.1140])
 
 
@@ -47,15 +48,21 @@ def getBounds(_im, axis=0, _stdlim=5, _xlim=0.95):
     return _left, _rght
 
 
-def getSquares():
-    """Detect and extract squares using Hough transform."""
+def getSquares(path, verbose=False):
+    """
+    Detect and extract squares using Hough transform.
+    
+    Goal of this function is just to return the squares with numbers
+    (and their respective coordinates)
+    Further transformations/normalisations etc. are handled by network.py
+    """
     print("Reading the image..")
-    im = io.imread("images/testSudoku.png")
+    im = io.imread(path)
     
     print("Pre-processing..")
-    im = rgb2gray(im)
-    # im = filters.gaussian(im, sigma=2)
-    im = im > 100
+    grayscale = rgb2gray(im)
+    # grayscale = filters.gaussian(grayscale, sigma=2)
+    im = grayscale > 100
     
     print("Begin line finding..")
     edges = ~im
@@ -64,7 +71,8 @@ def getSquares():
     h, theta, d = transform.hough_line(edges, theta=angles)
     
     x0s, y0s, slopes = [], [], []
-    plt.imshow(im, cmap="gray", vmin=0, vmax=1)
+    if verbose:
+        plt.imshow(im, cmap="gray", vmin=0, vmax=1)
     for _, angle, dist in zip(*transform.hough_line_peaks(h, theta, d)):
         (x0, y0) = dist *  np.array([np.cos(angle), np.sin(angle)])
         slope = np.tan(angle + np.pi/2)
@@ -113,11 +121,7 @@ def getSquares():
     x, y = np.arange(im.shape[0]), np.arange(im.shape[1])
     X, Y = np.meshgrid(y, x)
     for i in range(9):
-        row = []
         for j in range(9):
-            # TODO: REMOVE THIS!
-            # if j != 2:
-            #     continue
             # Get bounding lines
             horizontal_0, horizontal_1 = horizontal[i, :], horizontal[i+1, :]
             vertical_0, vertical_1 = vertical[j, :], vertical[j+1, :]
@@ -135,44 +139,26 @@ def getSquares():
             # Vertical lines to y axis
             theta = -np.arctan((vertical_0[-1] + vertical_1[-1]) / 2.)
             _square = transform.rotate(_square, angle=theta)
-            _left, _rght = getBounds(_square, axis=0)
+            left, rght = getBounds(_square, axis=0)
             
             # Horizontal lines to x axis
             phi = np.arctan((horizontal_0[-1]+horizontal_1[-1])/2)
             _square = transform.rotate(_square, angle=phi - theta)     
-            _lo, _up = getBounds(_square, axis=1)
+            lo, up = getBounds(_square, axis=1)
 
-            square = _square[_lo:_up+1, _left:_rght+1]
-            row += [square]
+            square = _square[lo:up+1, left:rght+1]
             
-            # plt.figure()
-            # plt.imshow(square, cmap="gray", vmin=0, vmax=1)
-
-        squares += [row]
-    
-    sums = np.zeros((9, 9))
-    for i, row in enumerate(squares):
-        for j, square in enumerate(row):
-            # _lim = 0.2
-            # cropped = util.crop(square, (
-            #     (int(_lim*square.shape[0]), int(_lim*square.shape[0])),
-            #     (int(_lim*square.shape[1]), int(_lim*square.shape[1]))))
-            # square = cropped
-            res = transform.resize(square, (28, 28))
-            res = res > 0.5
-            sums[i, j] = 28*28 - np.sum(res)
-            # TODO: if res is empty, then there is no number
-            # Now zoom on numbers to create dataset
-    
-    plt.figure()
-    plt.hist(sums.flatten()[sums.flatten() != 0], 25)
-    print(sums.flatten())
+            # Check if there is a number in there
+            res = transform.resize(square, (28, 28)) > 0.5
+            if not 28*28 - np.sum(res):
+                continue
+            
+            # TODO: return part from orig (grayscale) img
+            squares += [(i, j, grayscale[_lo:_up+1, _left:_rght+1]
+                         [lo:up+1, left:rght+1])]
     
     return squares
 
 
 if __name__ == '__main__':
-    squares = getSquares()
-    # for row in squares:
-    #     for square in row:
-    #         plt.imshow(square, cmap="gray", vmin=0, vmax=1)
+    squares = getSquares("images/testSudoku.png")

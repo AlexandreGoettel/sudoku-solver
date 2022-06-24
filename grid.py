@@ -50,17 +50,18 @@ class Grid:
                     # Maybe move this to init?
                     self.grid[i, j]["options"] = np.ones(self.n)
     
-    def loadStd(self):
+    def loadStd(self, numbers=[]):
         """Load a standard sudoku grid for debugging."""
-        numbers = [0, 9, 0, 3, 0, 0, 0, 0, 6,
-                   8, 0, 0, 0, 0, 0, 1, 4, 5,
-                   0, 0, 0, 0, 0, 6, 0, 0, 0,
-                   2, 0, 0, 0, 8, 3, 0, 0, 0,
-                   0, 8, 0, 0, 0, 0, 0, 2, 0,
-                   0, 0, 0, 5, 2, 0, 0, 0, 1,
-                   0, 0, 0, 7, 0, 0, 0, 0, 0,
-                   5, 1, 9, 0, 0, 0, 0, 0, 3,
-                   3, 0, 0, 0, 0, 5, 0, 8, 0]
+        if not len(numbers):
+            numbers = [0, 9, 0, 3, 0, 0, 0, 0, 6,
+                       8, 0, 0, 0, 0, 0, 1, 4, 5,
+                       0, 0, 0, 0, 0, 6, 0, 0, 0,
+                       2, 0, 0, 0, 8, 3, 0, 0, 0,
+                       0, 8, 0, 0, 0, 0, 0, 2, 0,
+                       0, 0, 0, 5, 2, 0, 0, 0, 1,
+                       0, 0, 0, 7, 0, 0, 0, 0, 0,
+                       5, 1, 9, 0, 0, 0, 0, 0, 3,
+                       3, 0, 0, 0, 0, 5, 0, 8, 0]
         for m, val in enumerate(numbers):
             i, j = m // self.n, m % self.n
             self.setVal(val, i, j)

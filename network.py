@@ -27,7 +27,7 @@ class imageClassifier(nn.Module):
         return F.log_softmax(x)
 
 
-def main():
+def main(network_path="results/model.pth"):
     # Set parameters for the training
     n_epochs = 3
     batch_size_train = 64
@@ -37,12 +37,13 @@ def main():
     log_interval = 10
     
     # Get DataLoaders for the training
+    # TODO: switch to batch normalisation
     train_loader = torch.utils.data.DataLoader(
         torchvision.datasets.MNIST("mnist/", train=True, download=True,
                                    transform=torchvision.transforms.Compose([
                                        torchvision.transforms.ToTensor(),
                                        torchvision.transforms.Normalize(
-                                           (0.1307,), (0.3081,))])),
+                                           (0.13066,), (0.16637,))])),
         batch_size=batch_size_train, shuffle=True)
     
     test_loader = torch.utils.data.DataLoader(
@@ -50,7 +51,7 @@ def main():
                                    transform=torchvision.transforms.Compose([
                                        torchvision.transforms.ToTensor(),
                                        torchvision.transforms.Normalize(
-                                           (0.1307,), (0.3081,))])),
+                                           (0.13249,), (0.17024,))])),
         batch_size=batch_size_test, shuffle=True)
 
     # Prepare training
@@ -62,6 +63,7 @@ def main():
                           momentum=momentum)
     
     def train(epoch):
+        # TODO: plot validation loss!!
         network.train()
         for batch_idx, (data, target) in enumerate(train_loader):
             optimiser.zero_grad()
@@ -78,8 +80,8 @@ def main():
                 train_losses.append(loss.item())
                 train_count.append(batch_idx*batch_size_train +
                                 ((epoch-1)*len(train_loader.dataset)))
-                torch.save(network.state_dict, "results/model.pth")
-                torch.save(optimiser.state_dict, "results/optimiser.pth")
+                torch.save(network.state_dict(), network_path)
+                torch.save(optimiser.state_dict(), "results/optimiser.pth")
     
     def test():
         network.eval()

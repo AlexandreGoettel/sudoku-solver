@@ -3,4 +3,5 @@ plots/*
 results/*
 mnist/*
 images/*
+fonts/*
 *.txt

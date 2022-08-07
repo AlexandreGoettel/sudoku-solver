@@ -15,20 +15,7 @@ def main(image_path="images/testSudoku.png",
     network = imageClassifier()
     network.load_state_dict(torch.load(network_path))
     
-    # First test
-    # img = transform.resize(squares[0][2], (28, 28))
-    # img = 255 - img
-    # mu, sigma = np.mean(img), np.std(img)
-    # img = (img - mu) / sigma
-    # img[img < .5] = 0
-    # plt.imshow(img)
-    
-    # network.eval()
-    # with torch.no_grad():
-    #     data = torch.from_numpy(img[None, None, ...]).float()        
-    #     output = network(data)
-    #     _, prediction = output.data.max(1, keepdim=True)
-    
+    # Get numbers from each squares using network
     numbers_for_sudoku = np.zeros(81)
     network.eval()
     with torch.no_grad():
@@ -52,9 +39,10 @@ def main(image_path="images/testSudoku.png",
                 data = np.array(output.data[0])
                 print(100 / data / np.sum(1 / data))
     
+    # Insert in Grid object to solve!
     testGrid = Grid()
     testGrid.loadStd(numbers_for_sudoku)
-    print(testGrid)        
+    print(testGrid)
 
 
 if __name__ == '__main__':

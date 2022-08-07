@@ -105,9 +105,9 @@ def prepareFontNumbers(mnist_data, fontdir="fonts", generate=False):
     return images, labels
 
 
-class fontData(torch.utils.data.Dataset):
+class FontData(torch.utils.data.Dataset):
     def __init__(self, mnist_reference):
-        super(fontData).__init__()
+        super(FontData).__init__()
         self.images, self.labels = prepareFontNumbers(mnist_reference)
     
     def __getitem__(self, i):

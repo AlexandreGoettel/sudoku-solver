@@ -169,12 +169,12 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
         axAcc, axLoss = fig.add_subplot(gs[0, :]), fig.add_subplot(gs[1, :])
         axLoss.set_yscale("log")
         
-        x = np.arange(epoch)
+        x = np.arange(epoch+1)
         labels = ["Training", "Validation"]
         for i in range(2):
-            axAcc.errorbar(x+i*.1, book[:epoch, i, 0], book[:epoch, i, 1],
+            axAcc.errorbar(x+i*.1, book[:epoch+1, i, 0], book[:epoch+1, i, 1],
                            fmt=".", label=labels[i], color="C{}".format(i))
-            axLoss.plot(x, book[:epoch, i, 2], "-",
+            axLoss.plot(x, book[:epoch+1, i, 2], "-",
                         label=labels[i], color="C{}".format(i))
 
         axAcc.legend(loc="upper left")

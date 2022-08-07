@@ -2,6 +2,8 @@
 # Standard imports
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.gridspec import GridSpec
+from scipy.special import betaln
 # Torch
 import torch
 import torchvision
@@ -15,38 +17,199 @@ from  getfontdata import FontData
 
 class ImageClassifier(nn.Module):
     
-    def __init__(self, kernel_size=5, dropout=.3):
+    def __init__(self, kernel_size=5, dropout=.3, n_layers=2, fcn_mid=50,
+                 channels_per_layer=10):
+        """
+        Generate an image classifier.
+        
+        kernel_size: for the conv layers
+        n_layers: number of conv layers
+        fcn_mid: number of neurons in "hidden" fcn
+        channels_per_layer: number of channels added in each convolution
+        dropout: given as float between 0 and 1
+        """
         super(ImageClassifier, self).__init__()
         # Hyper-params
         self.dropout = dropout
+        self.n_layers = n_layers
         # Network
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=kernel_size)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=kernel_size)
-        self.conv2_drop = nn.Dropout2d(p=dropout)
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
+        for n in range(n_layers):
+            setattr(self, "conv{}".format(n+1), nn.Conv2d(
+                max(1, n*channels_per_layer), (n+1)*channels_per_layer,
+                kernel_size=kernel_size, stride=1, padding="valid"))
+
+        self.conv_drop = nn.Dropout2d(p=dropout)
+        self.fc1 = nn.Linear(320, fcn_mid)
+        self.fc2 = nn.Linear(fcn_mid, 10)
     
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
+        for n in range(self.n_layers):
+            layer = getattr(self, "conv{}".format(n+1))(x)
+            if n == self.n_layers - 1:  # dropout on last conv layer
+                x = F.leaky_relu(F.max_pool2d(self.conv_drop(layer), 2))
+            else:
+                x = F.leaky_relu(F.max_pool2d(layer, 2))
         x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
+        x = F.leaky_relu(self.fc1(x))
         x = F.dropout(x, training=self.training, p=self.dropout)
         x = self.fc2(x)
-        return F.log_softmax(x)
+        return F.log_softmax(x, -1)
 
 
-def train(train_loader, val_loader, test_loader,
-          dropout=.3, lr=.001, momentum=.9, lr_factor=.1, epochs=100):
+def getEff(m, n):
+    """Calculate a HEP-style efficiency with uncertainty."""
+    eff = m / float(n)
+    var = np.exp(betaln(m+3, n-m+1) - betaln(m+1, n-m+1)) -\
+        np.exp(2*(betaln(m+2, n-m+1) - betaln(m+1, n-m+1)))
+    
+    return eff, np.sqrt(var)
+
+
+def getAccuracy(output, labels):
+    """Convert using one-hot then eval. accuracy with uncertainty."""
+    idx = np.argmax(output, axis=1)
+    return getEff(np.sum(np.array(idx == labels, dtype=int)),
+                  float(len(labels)))
+
+
+def weighedAverage(x, sigma):
+    """Return average of x weighed with sigma, with uncertainty."""
+    numerator = np.sum(x / sigma**2)
+    denominator = np.sum(1. / sigma**2)
+    return numerator / denominator, 1. / np.sqrt(denominator)
+
+
+def batch_normalise(data):
+    nBatch = data.shape[0]
+    numpy_data = np.sum(data.detach().numpy(), axis=0)    
+    
+    mu = np.mean(numpy_data) / nBatch
+    sigma = np.std(numpy_data.flatten(), ddof=1)
+    data = (data - mu) / sigma
+    return data
+
+
+def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
+          dropout=.3, lr=.001, momentum=.9, lr_factor=.1, epochs=10,
+          patience=5, kernel_size=5, nConvLayers=2, fcn_mid=50, nChannels=10):
     """Train the "ImageClassifier" using the passed datasets."""
-    model = ImageClassifier(dropout=dropout)
-    print(summary(model, (64, 1, 28, 28)))
+    model = ImageClassifier(dropout=dropout, kernel_size=kernel_size,
+                            n_layers=nConvLayers, fcn_mid=fcn_mid,
+                            channels_per_layer=nChannels)
+    
+    # define optimiser, criterion
+    criterion = nn.CrossEntropyLoss()
+    optimiser = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimiser,
+                                                     factor=lr_factor,
+                                                     patience=patience,
+                                                     cooldown=0,
+                                                     verbose=True)    
+    
+    # Training loop
+    book = np.zeros((epochs, 2, 3))  # (train, val), (acc, sig, loss)
+    nTrain, nValid, nTest = list(map(len, [
+        train_loader, val_loader, test_loader]))
+    # TODO: not same number of batches!
+    train_accuracy, train_loss = np.zeros((2, nTrain)), np.zeros(nTrain)
+    val_accuracy, val_loss = np.zeros((2, nValid)), np.zeros(nValid)
+    test_accuracy, test_loss = np.zeros((2, nTest)), np.zeros(nTest)
+    for epoch in range(epochs):
+        print("Epoch: {:d}".format(epoch+1))
+        # Switch to training mode
+        model.train()
+        for ibatch, (data, truth) in enumerate(train_loader):
+            optimiser.zero_grad()
+            data = batch_normalise(data)
+            output = model(data)
+            loss = criterion(output, truth)
+            
+            # Update weights
+            loss.backward()
+            optimiser.step()
+            
+            # Book-keeping
+            output = output.detach().numpy()
+            train_accuracy[:, ibatch] = getAccuracy(output, truth.numpy())
+            train_loss[ibatch] = loss.item()
+
+        book[epoch, 0, :2] = weighedAverage(*train_accuracy)
+        book[epoch, 0, 2] = np.mean(train_loss)
+ 
+        print("[TRAIN] acc: {:.3f} +- {:.3f}\n[TRAIN] loss: {:.4f}".format(
+            *book[epoch, 0, :]))
+
+        # Switch to validation mode
+        model.eval()
+        for ibatch, (data, truth) in enumerate(val_loader):
+            data = batch_normalise(data)
+            output = model(data)
+            loss = criterion(output, truth)
+            
+            # Book-keeping
+            output = output.detach().numpy()
+            val_accuracy[:, ibatch] = getAccuracy(output, truth.numpy())
+            val_loss[ibatch] = loss.item()        
+        book[epoch, 1, :2] = weighedAverage(*val_accuracy)
+        book[epoch, 1, 2] = np.mean(val_loss)
+        print("[VALID] acc: {:.3f} +- {:.3f}\n[VALID] loss: {:.4f}".format(
+            *book[epoch, 1, :]))
+        
+        # Update scheduler
+        scheduler.step(book[epoch, 1, 2])
+        
+        # Save model progress
+        torch.save(model.state_dict(), model_path)
+        
+        # Update plots
+        if epoch < 2:
+            continue
+        fig = plt.figure()
+        gs = GridSpec(2, 3, figure=fig)
+        axAcc, axLoss = fig.add_subplot(gs[0, :]), fig.add_subplot(gs[1, :])
+        axLoss.set_yscale("log")
+        
+        x = np.arange(epoch)
+        labels = ["Training", "Validation"]
+        for i in range(2):
+            axAcc.errorbar(x+i*.1, book[:epoch, i, 0], book[:epoch, i, 1],
+                           fmt=".", label=labels[i], color="C{}".format(i))
+            axLoss.plot(x, book[:epoch, i, 2], "-",
+                        label=labels[i], color="C{}".format(i))
+
+        axAcc.legend(loc="upper left")
+        axLoss.legend(loc="upper right")
+        plt.show()
+    
+    # Testing phase
+    model.eval()
+    for ibatch, (data, truth) in enumerate(test_loader):
+        data = batch_normalise(data)
+        output = model(data)
+        loss = criterion(output, truth)
+        
+        # Book-keeping
+        output = output.detach().numpy()
+        test_accuracy[:, ibatch] = getAccuracy(output, truth.numpy())
+        test_loss[ibatch] = loss.item()
+    results = np.zeros(3)
+    results[:2] = weighedAverage(*val_accuracy)
+    results[2] = np.mean(test_loss)
+    print("[TEST] acc: {:.3f} +- {:.3f}\n[TEST] loss: {:.4f}".format(
+        *results))
 
 
 def main():
+    """Do the training on mnist."""
     # Set hyperparameters
     batch_size_train = 64
     validation_size = 5000
+    
+    kwargs_train = dict(
+        kernel_size=5, nConvLayers=2, fcn_mid=50, nChannels=10,  # Train
+        epochs=500, patience=10, lr_factor=.1, momentum=.9, lr=.001,  # Model
+        dropout=.3)  # Model
+    
 
     # Get training, validation, and test data from mnist
     mnist_train_data = torchvision.datasets.MNIST(
@@ -69,7 +232,8 @@ def main():
             transform=torchvision.transforms.ToTensor()),
         batch_size=batch_size_train, shuffle=True)
     
-    train(mnist_train_loader, mnist_val_loader, mnist_test_loader)
+    train(mnist_train_loader, mnist_val_loader, mnist_test_loader,
+          **kwargs_train)
     
     # fonts_train_loader = torch.utils.data.DataLoader(
     #     FontData(mnist_train_data.dataset.data.numpy()),
@@ -87,89 +251,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-"""
-# Training loop
-for epoch in range(epochs):
-    print("Epoch: {:d}".format(epoch+1))
-    plot_data[epoch, ...] = 0.
-    for batch in range(nBatches):
-        # Training
-        model.train()
-        optimizer.zero_grad()
-        
-        # Training step
-        data, labels = data_train[batch, ...], labels_train[batch, :]
-        output = model(data)
-        loss = criterion(output, labels)
-        
-        # Update weights
-        loss.backward()
-        optimizer.step()
-        
-        # Book-keeping
-        output = output.detach().numpy()
-        acc, sig = getAccuracy(output, labels.numpy())
-        # TODO: plot this from validation data not training..
-        plot2_data[epoch, ...] += output[...] / nBatches
-        plot_data[epoch, 0] += loss.item() / nBatches
-        plot_data[epoch, 2:4] += acc / nBatches, sig / nBatches
-        
-        # Printing and plotting
-        print("Batch {:d}/{:d}".format(batch+1, nBatches))
-        print("\tTraining loss: {:.4f}".format(loss.item()))
-        print("\tTraining accuracy: {:.3f} +- {:.4f}".format(acc, sig))
-        
-    # Validation
-    model.eval()
-    output = model(data_val)
-    loss = criterion(output, labels_val)
-    
-    # Learning rate scheduler
-    # scheduler.step(loss)
-    
-    # Book-keeping
-    acc, sig = getAccuracy(output.detach().numpy(), labels_val.numpy())
-    plot_data[epoch, 1] = loss.item()
-    plot_data[epoch, 4:6] = acc, sig
-    print("Validation loss: {:.4f}".format(plot_data[epoch, 1]))
-    print("Validation accuracy: {:.3f} +- {:.4f}".format(acc, sig))
-    
-    if epoch < 2:
-        continue
-    
-    # Plotting
-    # Output
-    fig, ax = plt.subplots(4, 4, sharex=True, sharey=True)
-    count = 0
-    for i in range(4):
-        for j in range(4):
-            ax[i][j].imshow(plot2_data[:epoch+1, :, count],
-                            extent=(0, 15, 15, 0), interpolation="None")
-            count += 1
-
-    # Loss
-    plt.figure()
-    ax = plt.subplot(111)
-    ax.set_yscale("log")
-    ax.plot(plot_data[:, 0], label="Training")
-    ax.plot(plot_data[:, 1], label="Validation")
-    ax.set_ylabel("Loss")
-    ax.legend(loc="best")
-    # ax.axhline(2.7726, color="C3")
-    # ax.axhline(1.8746, color="C2")
-    
-    # Accuracy
-    plt.figure()
-    plt.errorbar(x_epochs, plot_data[:, 2], yerr=plot_data[:, 3], fmt=".",
-                 label="Training")
-    plt.errorbar(x_epochs, plot_data[:, 4], yerr=plot_data[:, 5], fmt=".",
-                 label="Validation")
-    plt.legend(loc="best")
-    plt.ylabel("Accuracy")
-    plt.axhline(1/16., linestyle="--", linewidth=2., color="r")
-    plt.show()
-
-    # Save model progress
-    torch.save(model.state_dict(), "Marlene_test1.pth")
-"""

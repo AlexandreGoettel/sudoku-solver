@@ -4,5 +4,8 @@ results/*
 mnist/*
 images/*
 fonts/*
+archive/*
+.idea/*
 *.txt
 *.pth
+*.npy

@@ -5,7 +5,7 @@ from skimage import io, filters, transform
 from utils import rgb2gray, getIntersect
 
 
-def getBounds(_im, axis=0, _stdlim=5, _xlim=0.95):
+def getBounds(_im, axis=0, _stdlim=5, _xlim=0.90):
     """Get bounds of innermost square on axis."""
     # Get derivative of projected sum
     x = np.sum(_im, axis=axis)

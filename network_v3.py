@@ -10,11 +10,13 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torchinfo import summary
+
 # Project imports
 import utils
 from  getfontdata import FontData
 
 
+# TODO: Plot a few numbers with their classification scores at the end
 class ImageClassifier(nn.Module):
 
     def __init__(self, kernel_size=5, dropout=.3, n_layers=2, fcn_mid=50,
@@ -72,12 +74,14 @@ def batch_normalise(data):
 def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
           dropout=.3, lr=.001, momentum=.9, lr_factor=.1, epochs=10,
           patience=5, kernel_size=5, nConvLayers=2, fcn_mid=50, nChannels=10,
-          verbose=False):
+          verbose=False, ref_model=None):
     """Train the "ImageClassifier" using the passed datasets."""
     model = ImageClassifier(dropout=dropout, kernel_size=kernel_size,
                             n_layers=nConvLayers, fcn_mid=fcn_mid,
                             channels_per_layer=nChannels)
     print(summary(model, input_size=(64, 1, 28, 28)))
+    if ref_model is not None:
+        model.load_state_dict(torch.load(ref_model))
 
     # define optimiser, criterion
     criterion = nn.CrossEntropyLoss()
@@ -92,7 +96,6 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
     book = np.zeros((epochs, 2, 3))  # (train, val), (acc, sig, loss)
     nTrain, nValid, nTest = list(map(len, [
         train_loader, val_loader, test_loader]))
-    # TODO: not same number of batches!
     train_accuracy, train_loss = np.zeros((2, nTrain)), np.zeros(nTrain)
     val_accuracy, val_loss = np.zeros((2, nValid)), np.zeros(nValid)
     test_accuracy, test_loss = np.zeros((2, nTest)), np.zeros(nTest)
@@ -110,7 +113,7 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
             loss.backward()
             optimiser.step()
 
-            # Book-keeping
+            # Bookkeeping
             output = output.detach().numpy()
             train_accuracy[:, ibatch] = utils.getAccuracy(output,
                                                           truth.numpy())
@@ -130,10 +133,10 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
                 output = model(data)
                 loss = criterion(output, truth)
     
-                # Book-keeping
+                # Bookkeeping
                 output = output.detach().numpy()
                 val_accuracy[:, ibatch] = utils.getAccuracy(output, truth.numpy())
-            val_loss[ibatch] = loss.item()
+                val_loss[ibatch] = loss.item()
         book[epoch, 1, :2] = utils.weighedAverage(*val_accuracy)
         book[epoch, 1, 2] = np.mean(val_loss)
         print("[VALID] acc: {:.3f} +- {:.3f}\n[VALID] loss: {:.4f}".format(
@@ -166,7 +169,8 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
 
         axAcc.legend(loc="upper left")
         axLoss.legend(loc="upper right")
-        plt.show()
+        # plt.show()
+        plt.savefig("progress.png")
 
     # Testing phase
     model.eval()
@@ -175,7 +179,7 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
         output = model(data)
         loss = criterion(output, truth)
 
-        # Book-keeping
+        # Bookkeeping
         output = output.detach().numpy()
         test_accuracy[:, ibatch] = utils.getAccuracy(output, truth.numpy())
         test_loss[ibatch] = loss.item()
@@ -188,9 +192,9 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
     return book[:, 1, 2]  # validation loss
 
 
-def trainWrapper(batch_size_train=64, verbose=False, **kwargs_train):
+def trainWrapper(batch_size_train=64, verbose=False):
     """Do the training on mnist."""
-    # Set hyperparameters
+    # Set hyper-parameters
     validation_size = 5000
 
     # Great model saved under "mnist_test1.pth"
@@ -224,22 +228,39 @@ def trainWrapper(batch_size_train=64, verbose=False, **kwargs_train):
                  verbose=verbose, model_path="playing.pth", **kwargs_train)
 
 
-def trainPC():
-    # fonts_train_loader = torch.utils.data.DataLoader(
-    #     FontData(mnist_train_data.dataset.data.numpy()),
-    #     batch_size=10, shuffle=True)
+def train_fonts():
+    # Hyper-parameters
+    batch_size = 10
+    val_split = .1
+    test_split = .1
+    kwargs_train = dict(
+        kernel_size=3, nConvLayers=3, fcn_mid=250, nChannels=10,  # Train
+        epochs=50, patience=10, lr_factor=.1, momentum=.9, lr=.01,  # Model
+        dropout=0)  # Model
 
-    # Combine with font-generated data
-    # TODO: NORMALISE PADDING?
-    # Make sure there is enough data augmentation
-    # Train while keeping track of training and validation loss for plots!
-    # Plot a few numbers with their classification scores at the end
-    # Don't forget batch normalisation (amplitude and padding)
-    # Do a lot of augmentation on the PC numbers to match the size of the mnist dataset?
-    # Careful, where are the zeros?
-    pass
+    # Get data
+    mnist_train_data = torchvision.datasets.MNIST(
+        "mnist/", train=True, download=True,
+        transform=torchvision.transforms.ToTensor())
+    fonts_data = FontData(mnist_train_data.data.numpy(), do_transform=True)
+    # print(mnist_train_data.data[0, 0, 0])
+    # print(fonts_data[0][0][0, 0, 0])
+    # return
+
+    # Prepare datasets
+    N = len(fonts_data)
+    n_val, n_test = int(val_split*N), int(test_split*N)
+    split_data = torch.utils.data.random_split(
+        fonts_data, [N - n_val - n_test, n_val, n_test])
+    fonts_train_loader, fonts_val_loader, fonts_test_loader =\
+        list(map(lambda x: torch.utils.data.DataLoader(
+            x, batch_size=batch_size, shuffle=True), split_data))
+
+    return train(fonts_train_loader, fonts_val_loader, fonts_test_loader,
+                 verbose=True, model_path="playing_fonts.pth",
+                 ref_model="playing.pth", **kwargs_train)
 
 
 if __name__ == '__main__':
     # trainWrapper(verbose=True)
-    trainPC()
+    train_fonts()

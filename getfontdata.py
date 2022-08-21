@@ -3,8 +3,10 @@
 import os
 import numpy as np
 from skimage import io
+# Torch
 import torch
 import torchvision
+import torchvision.transforms as T
 # Project
 import utils
 
@@ -83,7 +85,8 @@ def prepareFontNumbers(mnist_data, fontdir="fonts", generate=False):
     # Now apply to font images
     fontNumbers, fontLabels = getFontNumbers(fontdir)
     N = len(fontNumbers)*9
-    images, labels = np.zeros((N, 28, 28)), np.zeros(N, dtype=np.int16)
+    images = np.zeros((N, 28, 28), dtype=np.uint8)
+    labels = np.zeros(N, dtype=np.uint8)
     for i, font in enumerate(fontNumbers):
         for j, number in enumerate(font):
             im = 255 - number
@@ -106,12 +109,33 @@ def prepareFontNumbers(mnist_data, fontdir="fonts", generate=False):
 
 
 class FontData(torch.utils.data.Dataset):
-    def __init__(self, mnist_reference):
+    def __init__(self, mnist_reference, generate=False, angle_max=20,
+                 distort_scale=.5, do_transform=False):
         super(FontData).__init__()
-        self.images, self.labels = prepareFontNumbers(mnist_reference)
+        self.images, self.labels = prepareFontNumbers(mnist_reference,
+                                                      generate=generate)
+
+        if not do_transform:
+            return
+        # Data augmentation
+        transforms = [
+            torch.nn.Sequential(
+                T.RandomRotation(angle_max, expand=True), T.Resize(28)),
+            T.RandomPerspective(distortion_scale=distort_scale, p=1, fill=0),
+            T.GaussianBlur(5)
+        ]
+
+        def applyTransform(images, _transform):
+            return _transform(torch.tensor(images[None, ...])).numpy()[0, ...]
+
+        # Recursively apply on newly transformed & old data
+        for transform in transforms:
+            self.images = np.append(
+                self.images, applyTransform(self.images, transform), axis=0)
+            self.labels = np.append(self.labels, self.labels)
     
     def __getitem__(self, i):
-        return self.images[i], self.labels[i]
+        return torch.tensor(self.images[None, i]), torch.tensor(self.labels[i])
     
     def __len__(self):
         return len(self.labels)

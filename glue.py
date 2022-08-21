@@ -2,17 +2,20 @@
 import numpy as np
 import torch
 from imgParser_v2 import getSquares
-from network import imageClassifier
+from network_v3 import ImageClassifier
 from matplotlib import pyplot as plt
 from skimage import transform
 from grid import Grid
 
 
+# TODO: read network kwargs from file instead
 def main(image_path="images/testSudoku.png",
-         network_path="results/model.pth"):
+         network_path="results/model.pth",
+         network_kwargs={"kernel_size": 3, "n_layers": 3, "fcn_mid": 250,
+                         "channels_per_layer": 10}):
     """Get images from imgParser.py and evaluate using network.py model."""
     squares = getSquares(image_path)
-    network = imageClassifier()
+    network = ImageClassifier(**network_kwargs)
     network.load_state_dict(torch.load(network_path))
     
     # Get numbers from each squares using network
@@ -32,13 +35,7 @@ def main(image_path="images/testSudoku.png",
             output = network(data)
             _, [[n]] = output.data.max(1, keepdim=True)
             numbers_for_sudoku[i*9+j] = n
-            
-            if (i == 0 and j == 3) or (i == 8 and j == 2):
-                plt.figure()
-                plt.imshow(img)
-                data = np.array(output.data[0])
-                print(100 / data / np.sum(1 / data))
-    
+
     # Insert in Grid object to solve!
     testGrid = Grid()
     testGrid.loadStd(numbers_for_sudoku)
@@ -46,4 +43,4 @@ def main(image_path="images/testSudoku.png",
 
 
 if __name__ == '__main__':
-    main()
+    main(network_path="playing_fonts.pth")

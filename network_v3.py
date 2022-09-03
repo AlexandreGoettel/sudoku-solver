@@ -13,7 +13,7 @@ from torchinfo import summary
 
 # Project imports
 import utils
-from  getfontdata import FontData
+from getfontdata import FontData
 
 
 # TODO: Plot a few numbers with their classification scores at the end
@@ -40,7 +40,7 @@ class ImageClassifier(nn.Module):
             setattr(self, "conv{}".format(n+1), nn.Conv2d(
                 max(1, n*channels_per_layer), (n+1)*channels_per_layer,
                 kernel_size=kernel_size, stride=1, padding="valid"))
-        
+
         self.M = utils.getOutSize(28, kernel_size, 2, n_layers)**2 *\
             n_layers*channels_per_layer
         self.fc1 = nn.Linear(self.M, fcn_mid)
@@ -51,10 +51,10 @@ class ImageClassifier(nn.Module):
             layer = getattr(self, "conv{}".format(n+1))(x)
             m = utils.getOutSize(x.shape[-1], self.kernel_size, 2, 1,
                                  raw=True)
-            x = F.leaky_relu(F.max_pool2d(layer, 2, padding=m%2))
-        
+            x = F.leaky_relu(F.max_pool2d(layer, 2, padding=m % 2))
+
         x = x.view(-1, self.M)
-        
+
         x = F.leaky_relu(self.fc1(x))
         x = F.dropout(x, training=self.training, p=self.dropout)
         x = self.fc2(x)
@@ -132,10 +132,11 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
                 data = batch_normalise(data)
                 output = model(data)
                 loss = criterion(output, truth)
-    
+
                 # Bookkeeping
                 output = output.detach().numpy()
-                val_accuracy[:, ibatch] = utils.getAccuracy(output, truth.numpy())
+                val_accuracy[:, ibatch] = utils.getAccuracy(
+                    output, truth.numpy())
                 val_loss[ibatch] = loss.item()
         book[epoch, 1, :2] = utils.weighedAverage(*val_accuracy)
         book[epoch, 1, 2] = np.mean(val_loss)
@@ -188,7 +189,7 @@ def train(train_loader, val_loader, test_loader, model_path="mnist_test1.pth",
     results[2] = np.mean(test_loss)
     print("[TEST] acc: {:.3f} +- {:.3f}\n[TEST] loss: {:.4f}".format(
         *results))
-    
+
     return book[:, 1, 2]  # validation loss
 
 

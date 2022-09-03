@@ -1,7 +1,7 @@
 """Create a bridge between image processing and number detection."""
 import numpy as np
 import torch
-from imgParser_v2 import getSquares
+from imgParser import getSquares
 from network_v3 import ImageClassifier
 from matplotlib import pyplot as plt
 from skimage import transform
@@ -17,7 +17,7 @@ def main(image_path="images/testSudoku.png",
     squares = getSquares(image_path)
     network = ImageClassifier(**network_kwargs)
     network.load_state_dict(torch.load(network_path))
-    
+
     # Get numbers from each squares using network
     numbers_for_sudoku = np.zeros(81)
     network.eval()
@@ -29,7 +29,7 @@ def main(image_path="images/testSudoku.png",
             mu, sigma = np.mean(img), np.std(img, ddof=1)
             img = (img - mu) / sigma
             img[img < .5] = 0  # cleanup
-            
+
             # Get grid number
             data = torch.from_numpy(img[None, None, ...]).float()
             output = network(data)

@@ -5,6 +5,7 @@ mnist/*
 images/*
 fonts/*
 archive/*
+backup/*
 .idea/*
 *.txt
 *.pth
